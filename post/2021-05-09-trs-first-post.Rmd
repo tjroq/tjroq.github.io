@@ -1,5 +1,5 @@
 ---
-title: TRs First Post
+title: TR's First Post
 author: Tyler Roquebert
 date: '2021-05-09'
 slug: trs-first-post
@@ -7,19 +7,47 @@ categories: []
 tags: []
 description: ''
 ---
-Typing some nonsense here? Is this,, nonsensical enough? 
+Hi! 
 
+Welcome to Tyler's Website, and more specifically, Tyler's blog within the website. 
+
+Since we have *a lot* of creative freedom with this post specifically, I thought I'd briefly talk about some of my interests! 
+
+First, as the front page of the website indicates, I am VERY passionate about the interplay between biology and nutrition. Naturally, this has led me to pursue a career in Public Health. The SARS-CoV-2 Pandemic (2020-TBD) has also fueled my passion for public health; it killed me standing by watching underprivileged communities suffer to make it through the pandemic. Ultimately, it is my goal to educate the next generation of public health officials and install community-based approaches to existing policies. 
+
+However, there's more to me than just yelling at people to wear a face covering! :) 
+
+I enjoy music **a lot**: in fact, there's just about always *something* playing off my speakers. Some of my favorite artists include Glass Animals - who I recently bought concert tickets for - Kendrick Lamar, Freddie Gibbs, Tame Impala, Lime Cordiale, and a number of other ultra-popular artists. I'm constantly striving to expand my music tastes, so I really enjoy having recommendations, albums, or playlists sent my way!
+
+Finally, I am a biggg Plant Dad! Over the last few years, I've taken pride in building my collection. For those like me, I'm including this picture of my *favorite* (but not the only) Pothos in my apartment which completes my "reading corner". I can't wait to move into a larger space so I have more room for plants. 
+![](/img/IMG_5301.jpg)
+Another one of my interests includes video gaming, but mostly just on FIFA. Using the player database from the latest edition of FIFA, I built a series of Prediction and Inference Models for player prices or skill attributes. If you'd like to read more about them, the link is below: 
 [Link to project 2](/project/project2/)
 
 [Link to google](https://www.google.com)
 
-```{r code chunk}
+```{R}
+#R code chunk
+library(reticulate)
+# py_install("numpy")
 
+UT<-"Hook'Em"
+Comp <- "Thanks for"
+As <- "Dr. Woodward!!"
 ```
 
 
-```{python.reticulate=F}
+```{python}
+#Python code chunk
+UT="Horns!"
+Kicks = "everything else you've done,"
+Bio = "bringing an infectious passion to class daily and"
+print(r.UT,UT) #access R-defined objects with r. 
 
+print(r.Comp, Bio, Kicks, r.As) # accessing factual statements about this Spring 2021 Semester
 ```
+
+
+A proud graduate of the University of Texas - at Austin, Tyler recently posed in front of the infamous Blue Door (of the Architecture Building). Reflecting on what he will miss most about UT's campus, Tyler says, "walking around campus and feeling as if I was walking through a living-breathing campus. Whether it is the chunky squirrels, centuries-old oak trees, or beautiful architecture, I'll miss being entertained and inspired from wherever I stop and stare." 
 
 ![](/img/DSC_1002.jpg)

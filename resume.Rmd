@@ -1,5 +1,5 @@
 ---
-title: "Resume"
+title: "Tyler's Resume"
 output: html_document
 hidedate: true
 hiderelated: true
