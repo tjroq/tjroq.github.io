@@ -1,0 +1,25 @@
+---
+title: TRs First Post
+author: Tyler Roquebert
+date: '2021-05-09'
+slug: trs-first-post
+categories: []
+tags: []
+description: ''
+---
+Typing some nonsense here? Is this,, nonsensical enough? 
+
+[Link to project 2](/project/project2/)
+
+[Link to google](https://www.google.com)
+
+```{r code chunk}
+
+```
+
+
+```{python.reticulate=F}
+
+```
+
+![](/img/DSC_1002.jpg)

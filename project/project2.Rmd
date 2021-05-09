@@ -1,0 +1,437 @@
+---
+title: "TJR2489_Project2_Sp2021 - Modeling, Testing, and Prediction"
+author: "Tyler Roquebert"
+date: "5/7/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+hook_output = knit_hooks$get('output')
+knit_hooks$set(output = function(x, options) {
+  # this hook is used only when the linewidth option is not NULL
+  if (!is.null(n <- options$linewidth)) {
+    x = knitr:::split_lines(x)
+    # any lines wider than n should be wrapped
+    if (any(nchar(x) > n)) x = strwrap(x, width = n)
+    x = paste(x, collapse = '\n')
+  }
+  hook_output(x, options)
+})
+
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE,fig.align="center",warning=FALSE,message=FALSE,fig.width=8, fig.height=5, linewidth=60)
+options(tibble.width = 100,width = 100)
+library(tidyverse)
+```
+
+# Building Prediction and Estimate Models for EA Sports' FIFA 21 Soccer Players
+
+## Introduction to FIFA21 and FutBin Data
+
+The latest addition of EA Sports' worldwide hit video game is FIFA 21, released on October 6th, 2020. FIFA allows users to play with their favorite soccer stars in a fast-paced football (soccer) simulation which tests users IQ, reactions, and decision making skills through the course of a game (12-15 real minutes). FIFA Ultimate Team (FUT) is a game mode where users can buy/sell players throughout the year to try and build the squad of their dreams. Furthermore, FUT fosters a sense of extreme competition because users can compete against each other 1v1 (or co-op) to find out who's the best FIFA player around. Considering over 10 million copies of FIFA20 were sold the year prior, competition is never scarce in FUT. Thus, users are compelled to keep playing to generate coins and performance based rewards, to continually upgrade their Ultimate Team. 
+
+The website Futbin.com represents the Holy Grail of information for any serious FUT player. FutBin continually monitors the in-game (FIFA 21 FUT) transfer market, and updates player prices within their database accordingly. Furthermore, the full statistical profile, mental attributes, and skills of any given player (known as in-game stats) are incorporated in FutBin's data. Thus, casual-to-professional FUT users can compare the price or statistics of any player they want from the FIFA 21 game, allowing the user to fine-tune their Ultimate Team. 
+
+Players are broken down into six key statistics: Pace, Shooting, Passing, Dribbling, Defending, and Physical. Within each of these six measurements exists subcategories which further explain the measurement; examples include Crossing and Vision in the Passing measurement or Strength and Stamina in the Physical measurement. The six core measurements and their subcategories are rated on a 1-100 scale for each player. Furthermore, players are given a designation for how comparable their weak foot is to their dominant foot (rated 1-5 stars); and the same scale is used for how well a player can perform skill moves in-game. Ultimate Team and FutBin also keep tabs of a player's position, height, weight, nationality, and what football club they play for. Ultimately, the rating a player receives (1-100) determines the type of FUT "card" they receive (Bronze, Silver, Gold); each of these can be broken down into Rare of Non-Rare card as well. Finally, there are a select number of past players (retirees) who are included in the game as Icons. Icon players are special because they allow users to play with some of their all-time favorite players (Frank Lampard, for a Chelsea fan's example), and, their ratings tend to be **very** good. 
+
+This project will use data obtained from FutBin's FIFA 21 registry. After cleaning the data to remove unwanted variables, rows which contained NAs, Goal Keepers, and duplicate (but special i.e. Halloween version) cards, the dataset contains 55 complete columns for 3,323 players in FIFA 21. 
+
+
+```{r dataset setup}
+# importing dataset containing data on each soccer player in FIFA21; also includes their auction/transfer market price (for some)
+fut_bin21_players <- read_csv("~/Desktop/website/content/project/fut_bin21_players.csv")
+
+futbin_players <- fut_bin21_players %>% 
+  select(player_name, player_extended_name, quality, revision, overall, club, league, nationality, position, age, height, weight, intl_rep, pace, pace_acceleration, pace_sprint_speed, dribbling, drib_agility, drib_balance, drib_reactions, drib_ball_control, drib_dribbling, drib_composure, shooting, shoot_positioning, shoot_finishing, shoot_shot_power, shoot_long_shots, shoot_volleys, shoot_penalties, shoot_penalties, passing, pass_vision, pass_crossing, pass_free_kick, pass_short, pass_long, pass_curve, defending, def_interceptions, def_heading, def_marking, def_stand_tackle, def_slid_tackle, physicality, phys_jumping, phys_stamina, phys_strength, phys_aggression, pref_foot, att_workrate, def_workrate, weak_foot, skill_moves, ps4_last, ps4_min, ps4_max, ps4_prp)
+```
+Above, I've pulled the most relevant statistics gathered on players. It includes all of the numeric statistics, and their categorical variables which were discussed briefly above. 
+
+``` {r tidying and cleaning}
+outfield_players <- futbin_players %>% filter(!position == "GK")
+
+full_outfield_players <- outfield_players %>% na.omit() # removing all rows w NAs in the data; deletes (15,779-15,055) 724 rows
+
+# created dataset that contains only player values, and filtered to only get players 'base' cards (bronze-gold & icon)
+# bronze through gold cards are further designated as Rare or Non-Rare cards. 
+tidy_nameless_players <- full_outfield_players %>% 
+  select(-1,-2) %>% 
+  filter(revision == c("Icon", "Rare", "Non-Rare", "non-rare")) %>% 
+  mutate(revision = str_replace(revision, "non-rare", "Non-Rare"))
+
+# building set with only the SIX CORE numeric statistics for a player's rating since the one above has SO many numeric variables
+tidier_nameless_players <- tidy_nameless_players %>% 
+  select(revision, overall, club, league, nationality, position, age, height, weight, intl_rep, pace, dribbling, shooting, passing, defending, physicality, pref_foot, att_workrate, def_workrate, weak_foot, skill_moves, ps4_last, ps4_prp)
+```
+Above, I've removed Goal Keepers from the dataset and kept only outfield soccer players. Goal Keeper statistics are measured differently than outfield players, so for consistency and ease of use sake, they were removed. Still, over 15,000 players remain in the dataset. 
+Next, I remove any rows/observations which contained NA values. The majority of rows (724) removed held NAs for their auction price data; coincidentally, these are some of the most revered and wanted players in the game (Pele, Ronaldinho) and tend not to be sold when acquired. 
+Finally, I've removed player's names from the dataset since they would make too good of a predictor later. Also, I've removed player cards that are "special". Without going into excruciating detail, these are either cards that are not based on real-life performance (like a Halloween edition) or are not classified properly for this project. 
+
+## MANOVA Testing
+
+``` {r MANOVA}
+# MANOVA testing whether these 5 numeric variables judging a player's abilities differ based on if the player is non-rare, rare, or Icon (intuitively yes)
+
+# overall rating, pace, physicality, weak foot, and skill move ratings were chosen because as an active FIFA/FUT player myself, I can say that these traits are notable when finding suitable players to purchase (especially Pace)
+man1 <- 
+  manova(cbind(overall, pace, physicality, weak_foot, skill_moves)~revision,
+         data=tidier_nameless_players)
+summary(man1) # shows a significant mean difference between numerics across the 3 levels of Revision (rare or not, and Icon)
+```
+A one-way MANOVA was conducted to determine the effect of a player's card type (Non-Rare, Rare, or Icon) on five dependent variables (overall rating, pace, physicality, weak foot, and skill moves). Significant differences were found among the three card types for at least one of the dependent variables, even after comparing to the Bonferroni corrected level of significance (*Pillai trace* = 0.211, *pseudo F*(10,6,634) = 78.201, *p* < 0.0001).
+
+```{r Univariate ANOVAs}
+summary.aov(man1) # performs univariate ANOVAs from the given MANOVA object
+# significant result in ALL FIVE univariate ANOVA tests reveal that for all 5 of the numeric variables, at least one type of card's average in that category is different than the other card types! 
+``` 
+Univariate ANOVAs for each dependent variable were conducted as follow-up tests to the MANOVA to test for significant differences between card types within *each* numeric variable, using the Bonferroni method for controlling Type I error rates for multiple comparisons. The univariate ANOVAs for Overall Rating, Pace, Physicality, Weak Foot, and Skill Moves were also significant, *F*(2,3320) = 368.06, *p* < .0001; *F*(2,3320) = 78.523, *p* < .0001; *F*(2,3320) = 69.925, *p* < .0001; *F*(2,3320) = 38.5, *p* < .0001; *F*(2,3320) = 103.29, *p* < .0001, respectively. 
+
+``` {r t tests from ANOVAs}
+tidier_nameless_players %>% group_by(revision) %>% 
+  summarize(mean_OVR=mean(overall), 
+            mean_pace=mean(pace), mean_phys=mean(physicality), 
+            mean_WF=mean(weak_foot), mean_SM=mean(skill_moves)) %>% 
+  kable("pipe", digits = 3, caption = "Average Stat Grade by Card Type")
+
+pairwise.t.test(tidier_nameless_players$overall, tidier_nameless_players$revision, p.adj="none") # overall rating across card types
+pairwise.t.test(tidier_nameless_players$pace, tidier_nameless_players$revision, p.adj="none") # pace across card types
+pairwise.t.test(tidier_nameless_players$physicality, tidier_nameless_players$revision, p.adj="none") # physical across card types
+pairwise.t.test(tidier_nameless_players$weak_foot, tidier_nameless_players$revision, p.adj="none") # weak foot across card types
+pairwise.t.test(tidier_nameless_players$skill_moves, tidier_nameless_players$revision, p.adj="none") # skill moves across card types
+```
+Post hoc analysis was performed conducting pairwise comparisons to determine which card type(s) differed in overall rating, pace, physicality, weak foot, and skill moves. All three card types were found to be significantly different from each other in terms of **all** player statistics after adjusting for multiple comparisons (Bonferroni alpha = .05/21 = 0.0024).
+
+
+``` {r Bonferroni adjustment for significance level}
+# ran 1 MANOVA, 5 ANOVA, and 15 (!) t-tests. Thus, performed 21 total tests
+0.05/21 # Bonferroni adjusted alpha = 0.0024
+
+1 - ((1 - 0.05)^21)
+# probability of at least one type I error being made is 0.6594. 
+```
+Throughout the process of determining if 5 key player ratings differ across card types (Rare, Non-Rare, and Icon) a total of 21 tests were performed (1 MANOVA, 5 ANOVA, and 15 t-tests). Using a significance level of 0.05, which is standard, we'd expect to have a 65.94% chance of making a Type I error - or observing a significant result when it is actually insignificant. Thus, the level of significance was adjusted using a Bonferroni correction (0.05/21 tests); now, any comparisons must have a p-value below 0.0024 in order to be designated significantly different from each other. 
+
+Even after adjusting the significance level, the three card types were significantly different from each of the others in all five numeric player rating categories. More in depth conclusions are given above. 
+
+Of the long list of MANOVA assumptions, it is unlikely that this data meets any of them. In particular, this data is almost certainly violating the multivariate normality assumption placed on dependent variables. Since player ratings are assigned by EA Sports (based on a player's real-world performances), there is not a normal distribution across ratings. In fact, there are *many* more below-average players in FIFA 21 than high-rated players, so heavy skewing is expected. Furthermore, because these player ratings are assigned, this data does not represent a random sample of observations. Nonetheless, the assumption regarding a linear relationship among dependent variables is probably **met** since the higher a player's rating is, the more common it would be to find high ratings in pace, physicality, and the other DVs used in the model. 
+
+## Randomization Testing
+Pace and Attacking Work Rate are really important in FIFA Ultimate Team. Players who have "High" Attacking Work Rates are more likely to push forward towards the goal they are attacking on when in possession of the ball. High work rates are desired because the user can count on that player being on the half of the field where the ball is, whether in possession or defense. Compared to others, players with High work rates will hustle to the ball more often, and just in general are found to be in better positions during the game. 
+
+Similarly, pace is really sought after in FUT. I'm not sure why, but even a small difference in pace between two players can drastically change how they "feel" in game. Plus, if a user is playing someone who's entire team is faster than their own, it becomes increasingly challenging to "keep up" with the other player during the game. Finally, because most users prefer players with at least a Medium attacking work rate, I will only use players with High or Medium work rates. Therefore, a randomization experiment was conducted to see whether there was a difference in mean player pace between players with High and Medium Attacking Work Rates. 
+
+### Null Hypothesis
+*Mean player pace is the same for High and Medium Attacking Work Rate players.*
+### Alternative Hypothesis
+*Mean player pace is different for High and Medium Attacking Work Rate players.*
+
+```{r Randomization Test for Difference in Mean Pace}
+player_dat <- tidier_nameless_players %>% 
+  filter(att_workrate == c("High", "Med")) %>% 
+  select(pace, att_workrate) # dataset with only pace and High/Med work rates. 1,608 observations remain
+
+rand_dist <- vector() # empty vector to hold mean differences from permutation
+
+for(i in 1:5000){ # loop resampling from data; calculating mean diff in pace after resampling
+  new<- data.frame(pace=sample(player_dat$pace), att_workrate=player_dat$att_workrate)
+  rand_dist[i] <- mean(new[new$att_workrate=="High",]$pace) - mean(new[new$att_workrate=="Med",]$pace)
+}
+
+player_dat %>% group_by(att_workrate) %>% summarize(means=mean(pace)) %>% summarize(true_mean_diff = diff(means))#true mean diff = -8.1427
+
+{hist(rand_dist, 
+      main="Null Distribution of Mean Diff. in Pace between High and Med. Attacking Work Rates",
+      ylab="Frequency", 
+      xlab="Randomized Distribution of Mean Differences", 
+      breaks = 15, 
+      xlim = c(-8.5,8.5), 
+      col = "purple"); 
+  abline(v = c(-8.1427, 8.1427), col="red")} 
+# test stat lines don't appear on null distribution because they are THAT far from what the expected mean difference is under a null distribution (no association)
+
+mean(rand_dist>8.1427 | rand_dist < -8.1427) # p-value ~ 0; REJECT HO
+```
+Above, a randomization test was performed to determine if there was a difference in average pace based on if a player had a High or Medium Attacking Work Rate. After simulating the null distribution and finding the true mean difference in pace (8.1427), there is enough evidence to conclude there is a significant difference in a player's average pace based on their High or Medium attacking work rate. 
+The histogram above depicts the null distribution of the simulated sample - in other words, the expected mean difference in pace if there was no association between pace and work rate. The true mean difference of 8.1427 was so far from the null distribution's given statistic that the axis had to be expanded just to display it. The probability of observing a difference in pace as large as we observed based on chance alone (no association of variables) was reported to be 0 (it is likely just an infinitely small number). Thus, we may reject our null hypothesis and conclude that pace differs based on attacking work rate designation. 
+
+## Linear Regression Model with Interaction
+
+``` {r linear regression with interaction}
+# mean centering numeric predictors 
+meanc_players <- tidier_nameless_players %>% 
+  select(ps4_last, pace, overall, physicality, revision) %>%
+  mutate(pace_c=tidier_nameless_players$pace-mean(pace),
+         overall_c=tidier_nameless_players$overall-mean(overall),
+         phys_c=tidier_nameless_players$physicality-mean(physicality))
+# fitting linear regression model to explain variation in player price on transfer market
+model_fit <- lm(ps4_last~pace_c+phys_c+revision+revision:pace_c, data=meanc_players) # Icon is reference group
+summary(model_fit)
+```
+$\widehat{PlayerPrice} = -612,976.7 + 109,282(Pace) + 246.3(Physicality) + 613,942(NonRare) + 616,189(Rare) - 109,237(Pace*NonRare) - 108,877(Pace*Rare)$
+
+### Model's Coefficient Interpretations (ignoring significance)
+
+- **Intercept:** Predicted auction price for a player with an average Pace *and* Physicality, who is an Icon, is -612,976.7 coins. 
+
+- **Physicality:** Controlling for Pace and card type (Revision status), for every 1 unit increase in a player's physicality, their transfer market price is predicted to increase by 246.3 coins, on average (*t*=1.1, *df*=3316, *p*=0.273).
+
+- **Pace:** Controlling for Physicality, *Icons* show an increase of 109,282 coins for every one unit increase in a player's pace on average (*t*=40.62, *df*=3316, *p*<.0001).
+
+- **revNonRare:** Controlling for Physicality, in players of average Pace, transfer market price is 613,942 coins higher for Non-Rare players compared to Icons (*t*=13.47, *df*=3316, *p*<.0001).
+
+- **revRare:** Controlling for Physicality, in players of average Pace, transfer market price is 616,189 coins higher for Non-Rare players compared to Icons (*t*=13.52, *df*=3316, *p*<.0001).
+
+- **pace:nonRare:** Controlling for Physicality, the slope for Pace on Market Price is 109,237 times *lower* for Non-Rare card types compared to Icon card types (*t*=-40.42, *df*=3316, *p*<.0001)
+
+- **pace:Rare:** Controlling for Physicality, the slope for Pace on Market Price is 108,877 times *lower* for Rare card types compared to Icon card types (*t*=-40.28, *df*=3316, *p*<.0001)
+
+``` {r regression plot 1}
+# the minimum Pace value across the 3,000+ observations is Pace = 30 units. Thus, the scale is off when comparing pace held at 0 or the mean (dotted vs solid horizontal line, respectively)
+ggplot(meanc_players, aes(pace, ps4_last, color=revision)) +
+  geom_smooth(method = "lm", se=F, fullrange=T) +
+  geom_point() +
+  xlab("Player Pace") +
+  ylab("Transfer Market Price (Coins)") +
+  geom_vline(xintercept = 0, lty=2)+
+  geom_vline(xintercept = mean(meanc_players$pace))
+```
+```{r R-Squared}
+summary(model_fit)
+```
+The graph above displays the predicted line of best fit for player's transfer market price based on card type and player pace. As you can see, the LARGE majority of Rare and NonRare card types have auction prices near 0 (200-1500 coins), which pulls their groups line of best down to the point they *both* appear horizontal. A better relationship between card type (Icons) and pace on price is observed when looking just at the icon class. For them, there's a pretty linear relationship between Pace and Price of the player on the market. 
+
+A player's physicality, pace, card type, and the interaction between card type and pace explain 60.68% of the variation observed in Transfer Market Price (PS4) (Adj. R-sq = 0.6068, *df*=3316).
+
+### Assumptions of Linearity, Normality, and Homoskedasticity
+
+```{r Assumptions from model_fit}
+resid <- model_fit$residuals
+fitvals <- model_fit$fitted.values
+# checking for equal variance across model
+ggplot()+ geom_point(aes(fitvals, resid)) + 
+  geom_hline(yintercept = 0, color="red") + ylab("Residuals") + 
+  xlab("Fitted Values") # looks awful, definitely unequal variance and thus failed Homoskedasticity 
+
+ggplot()+geom_histogram(aes(resid), bins=10) # DEFINITELY fails normality assumptions of residuals - everything is in the same bin 
+
+library(sandwich); library(lmtest)
+bptest(model_fit) # reject Null (which was that data is Homoskedastic) so we KNOW data is Heteroskedastic
+```
+
+It is painfully evident from both graphs above that the data emphatically does NOT pass any of the assumptions for a linear regression model (linearity, equal variance, normality of residuals). The residuals were so close to each other in absolute value that they took up only one bin in the histogram, giving us more of a bar graph than anything else. Furthermore, a Breusch-Pagan test formally confirms the model is Heteroskedastic after observing a p-value < .00001. Thus, running this model using robust standard errors, to account for the violated assumptions, will be a good next step. 
+
+### Running Regression Model with Robust Standard Errors due to Failed Homoskedastic Assumption
+
+``` {r Regression with robust SEs}
+# model with corrected SEs
+coeftest(model_fit, vcov = vcovHC(model_fit))[,1:2]
+# t- values from model:Pace_c (t=2.97); phys_c (t=1.72); nonRare (t=1.35); Rare (t=1.35); pace:nonRare(t=-2.97); pace:Rare(t=-2.96)
+```
+
+After comparing the model's regression results from before with the results using Robust Standard Errors, it's evident that the violation of assumptions was falsely conflating the model's prediction results. After running the regression with a more conservative test, the resulting t-value's for *each* predictor was lower than |3|! Considering the initial model had values anywhere between 13 and 40 for t, the use of robust standard errors drastically changes the interpretation of results. While the interaction between pace and card type, and the main effect of Pace remain significant predictors of player transfer market price, a player's physicality and the main effects of card type alone are no longer significant predictors!
+
+## Regression Model using Bootstrapping on Residuals, Interaction Included
+
+``` {r Bootstrapping Residuals from model_fit}
+model_fit <- lm(ps4_last~pace_c+phys_c+revision+revision:pace_c, data=meanc_players) # Icon is reference group; fitting model
+resids <- model_fit$residuals # saves residuals from model (which were awful)
+fitted <- model_fit$fitted.values # saves yhats (i.e. predicted price) from model
+
+resid_resamp<- replicate(5000, {
+  new_resids<-sample(resids, replace=TRUE) #resamp residuals w replacement, saves as new_resids
+  meanc_players$new_price <- fitted+new_resids #adds new residuals to yhats to get new data
+  fit<-lm(new_price~pace_c+phys_c+revision+pace_c:revision, data=meanc_players) # refitting model
+  coef(fit) # saves coefficient estimates
+})
+# estimated Standard Errors (SEs) from the Bootstrapped residual model
+resid_resamp %>% t %>% as.data.frame %>% summarize_all(sd)
+```
+Above we have refit a linear regression model to the data after using bootstrapping resampling methods on the original model's residuals. The estimated standard errors given from the bootstrapped model are shown above. Comparing these to the model using Robust Standard Errors, we notice that the SE values in the bootstrapped model are lower for main effects of pace, and the interaction of pace & card type; however, the SEs in the bootstrapped model are *greater* for main effects of physicality and both levels of card type. Nonetheless, compared to the *original* regression model, the bootstrapped model is a better estimator of the data since we had initially violated so many assumptions. Finally, no changes in significance of main effects or interaction are observed when comparing this model to the one using robust standard errors. Considering the state and number of failed assumptions which arose, either of the latter two models are preferable when trying to interpret the effect of a player's pace, card type, and physicality on their price. 
+
+## Logistic Regression Model Predicting Dominant Foot Status (Binary) from Some Predictors (no interaction)
+
+``` {r Logistic Regression}
+# coercing Right footedness (pref_foot) to be a 1; lefties will be a 0
+binary_foot <- tidier_nameless_players %>% select(overall, passing, pref_foot, dribbling) %>% mutate(y=ifelse(pref_foot=="Right",1,0))
+glimpse(binary_foot)
+
+log_fit<-glm(y~overall+passing+dribbling, data=binary_foot, family="binomial") # fitting logistic model
+coef(log_fit) %>% round(5) %>% data.frame # coefficients for eqtn in log-odds scales (additive)
+coef(log_fit) %>% exp %>% round(5) %>% data.frame #coefficients for eqtn in odds scale (multiplicative) - what ill use to interpret!
+```
+
+$\widehat{odds} = 3.62 * 1.02^R * 0.967^P * 1.00^D, where\: O=rating, \:P=passing,\: and\: D=dribbling$
+
+### Interpretation of Coefficients
+
+- Controlling for player passing and dribbling stats, going up 1 unit in Overall Rating increases odds of being right footed by about 2%. 
+- Controlling for player overall rating and dribbling stats, a 1 unit increase in passing statistics decreases the odds of being right footed by 3.3%. 
+- Controlling for overall rating and passing stats, a 1 unit increase in dribbling statistics increases the odds of being right footed by 0.4%. 
+
+```{r confusion matrix for previous logistic regression}
+probs<- predict(log_fit, type="response")
+table(prediction=as.numeric(probs>0.5), the_facts=binary_foot$y) %>% addmargins
+
+class_diag<-function(probs,truth){
+  
+  tab<-table(factor(probs>.5,levels=c("FALSE","TRUE")),truth)
+  acc=sum(diag(tab))/sum(tab)
+  sens=tab[2,2]/colSums(tab)[2]
+  spec=tab[1,1]/colSums(tab)[1]
+  ppv=tab[2,2]/rowSums(tab)[2]
+
+  if(is.numeric(truth)==FALSE & is.logical(truth)==FALSE) truth<-as.numeric(truth)-1
+  
+  #CALCULATE EXACT AUC
+  ord<-order(probs, decreasing=TRUE)
+  probs <- probs[ord]; truth <- truth[ord]
+  
+  TPR=cumsum(truth)/max(1,sum(truth)) 
+  FPR=cumsum(!truth)/max(1,sum(!truth))
+  
+  dup<-c(probs[-1]>=probs[-length(probs)], FALSE)
+  TPR<-c(0,TPR[!dup],1); FPR<-c(0,FPR[!dup],1)
+  
+  n <- length(TPR)
+  auc<- sum( ((TPR[-1]+TPR[-n])/2) * (FPR[-1]-FPR[-n]) )
+
+  data.frame(acc,sens,spec,ppv,auc)
+}
+
+class_diag(probs = probs, truth = binary_foot$y)
+```
+
+The confusion matrix obtained from the logistic regression model reveals the model did not classify a single player in the dataset as a Lefty!! Of the 3,323 observations, only 2,520 of the players are in-fact right-footed. However, the model incorrectly labeled the remaining 803 players who are *actually* left footed as right footed. From this alone, we expect our classification diagnositcs to be quite poor/low.
+
+As expected, our classification diagnostics are pretty awful. First, the Area Under the Curve, a measurement that plots TPR vs FPR to explain the strength of the model's predictions, is a measly 0.560. Ideally, AUC would be closer to 1; an AUC this low is associated with a BAD grade for the model's predictions. 
+
+The accuracy of the model appears to not be so bad, but considering there are 0 True Negative Individuals, this value is being inflated with the True Positive count (since it classified *everyone* as right footed, bound to get all those correct). Sensitivity is the True positive count by the conditional positive, and it's "great" rating is exclusively because the model correctly identified all right footed players as right footed; consequently, specificity is 0 because the model classified ALL players as right footed, so there is no true negative rate since it did not even account for any "negative" (lefty) values. 
+
+```{r Density Plot}
+binary_foot$logit<-predict(log_fit,type="link") #get log-odds for everyone
+
+binary_foot<- binary_foot %>% mutate(y=as.factor(y)) 
+
+binary_foot %>% ggplot() + 
+  geom_density(aes(logit, color=y, fill=y), alpha=.4)+
+  theme(legend.position = c(.85,.85))+
+  geom_vline(xintercept=0)+xlab("logit (log-odds)")+
+  geom_rug(aes(logit,color=y))+ 
+  labs(caption="Logistic Regression Model performed very poorly in predicting a player's preffered foot (R or L). In fact, the 100% overlap  visually confirms that there were no players that the model predicted to be Left footed - even though there were over 800 of them.")
+```
+
+### ROC Curve Plot
+
+```{r ROC for log_model}
+library(plotROC) 
+probs <- predict(log_fit, type="response")
+ROCplot <- ggplot(binary_foot) + geom_roc(aes(d=pref_foot, m=probs), n.cuts=0)+ 
+  geom_segment(aes(x=0,xend=1,y=0,yend=1),lty=2)
+
+ROCplot
+
+calc_auc(ROCplot)
+
+```
+
+The ROC curve above reveals that our model is *not* predicting a player's preferred foot well from just overall rating, passing, and dribbling statistics. An AUC of 0.56 confirms that our logistic regression model is not optimized to classify players into preferred foot categories. An ideal ROC plot would look like a Right (90 deg) angle, maximizing the TPR first and then the FPR. 
+
+## Logistic Regression Model Predicting Preferred Foot Status from ALL Possible (or Useful) Predictor Variables
+
+``` {r Logistic Regression with ALL predictors}
+binary_foot2 <- tidier_nameless_players %>% select(revision, overall, position, height, weight, intl_rep, pace, dribbling, shooting, passing, defending, physicality, att_workrate, def_workrate, weak_foot, skill_moves, ps4_prp, pref_foot) %>%
+  mutate(y=ifelse(pref_foot=="Right",1,0))
+
+binary_foot2<- binary_foot2 %>% select(-pref_foot) # removing truth column of foot (would be a perfect predictor)
+glimpse(binary_foot2)
+
+loggfit <- glm(y~., data=binary_foot2, family = "binomial") # fitting model with ALL predictors
+
+prob_big <- predict(loggfit, type="response") # pulling predicted probabilities
+class_diag(probs = prob_big, truth = binary_foot2$y) #classification diagnostics
+table(prediction=as.numeric(prob_big>0.5), the_facts=binary_foot2$y) %>% addmargins#confusion matrix; now model is at least predicting for each combination!
+```
+
+After fitting our logistic regression model using 18 (!) predictor variables and still trying to predict a player's preferred/strong foot, our classification diagnostics are MUCH higher. First off, Model Sensitivity is approaching 1, indicating that almost all right-footed players are being classified correctly. The AUC is also 0.78 for this model, representing a really drastic increase from 0.56 in the previous model. AUC would ideally be near 0.99, but it's getting better. Accuracy, Positive Predictive Value (PPV) and specificity are all higher in this model as well. Considering we had 0 players classified as left-footed from the previous model, corresponding to a specificity score of 0, even some players being classified as left-footed (regardless of right or wrong) is making this model a better predictor. 
+
+``` {r k-Fold cross validation}
+set.seed(1234)
+k=10 #choose number of folds
+
+data<-binary_foot2[sample(nrow(binary_foot2)),] #randomly order rows
+folds<-cut(seq(1:nrow(binary_foot2)),breaks=k,labels=F) #create folds
+
+diags<-NULL
+for(i in 1:k){
+  ## Create training and test sets
+  train<-data[folds!=i,]
+  test<-data[folds==i,]
+  truth<-test$y ## Truth labels for fold i
+  
+  ## Train model on training set (all but fold i)
+  fit<-glm(y~.,data=train,family="binomial")
+  
+  ## Test model on test set (fold i)
+  probs<-predict(fit,newdata = test,type="response")
+  
+  ## Get diagnostics for fold i
+  diags<-rbind(diags,class_diag(probs=probs,truth=truth))
+}
+
+summarize_all(diags, mean) # classification diagnostics averaged across all 10 (k) folds
+
+```
+After performing ten-fold cross validation with the same logistic regression model as before, including 18 predictors looking to model the preferred foot of a player, we see that our classification diagnostics have actually gotten *worse* than before. AUC has dropped from 0.78 to 0.77, while Accuracy, sensitivity, and specificity experienced similarly small decreases in value when averaging across all 10 folds. Thus we can conclude that although this model is not the best, it is at least consistent in-sample and out of sample. 
+
+```{r LASSO Regularization}
+library(glmnet)
+y<- as.matrix(binary_foot2$y) #grab response variable, preferred foot
+x<- model.matrix(y~-1+., data=binary_foot2) #grab predictors
+
+x<-scale(x) #standardizing predictors
+
+cv<-cv.glmnet(x,y,family="binomial") #picks an optimal value for lambda through 10-fold CV
+#we can plot cv, grab glmnet.fit, lamba, label it 
+{plot(cv$glmnet.fit, "lambda", label=TRUE); abline(v = log(cv$lambda.1se)); abline(v = log(cv$lambda.min),lty=2)}
+
+cv<-cv.glmnet(x,y,family="binomial") #picks an optimal value for lambda through 10-fold CV
+lasso<-glmnet(x,y,family="binomial",lambda=cv$lambda.1se) # runs the same, but just want output where lamba is equal to the lamba-min+1SE
+coef(lasso)
+
+# if we want a model that makes good predictions while minimizing the penalty, lasso suggests we only use position(s)[CB, CDM, CM, LB, LM, LWB, RB, & RW] as well as intl_rep, passing, physicality, and weak foot. ALL other predictors get dropped to 0!
+```
+
+```{r k-fold CV with LASSO selected predictors}
+set.seed(1234)
+k=10 #number of folds
+
+#need to create dummy variables for the multitude of player positions
+binary_foot2<- binary_foot2 %>% mutate(CB = ifelse(binary_foot2$position=="CB",1,0),
+                                       CDM = ifelse(binary_foot2$position=="CDM",1,0),
+                                       CM = ifelse(binary_foot2$position=="CM",1,0),
+                                       LB = ifelse(binary_foot2$position=="LB",1,0),
+                                       LM = ifelse(binary_foot2$position=="LM",1,0),
+                                       LWB = ifelse(binary_foot2$position=="LWB",1,0),
+                                       RB = ifelse(binary_foot2$position=="RB",1,0),
+                                       RW = ifelse(binary_foot2$position=="RW",1,0),
+                                       RWB = ifelse(binary_foot2$position=="RWB",1,0))
+
+data1<-binary_foot2[sample(nrow(binary_foot2)),] #randomly orders rows
+folds<- cut(seq(1:nrow(binary_foot2)), breaks=k, labels=F) #folds
+
+diags<- NULL
+for(i in 1:k){
+  ## create training and test sets
+  train<-data1[folds!=i,]
+  test<-data1[folds==i,]
+  truth<-test$y
+  
+  fit<-glm(y~CB+CDM+CM+LB+LM+LWB+RB+RW+RWB+height+intl_rep+passing+physicality+weak_foot, data=train, family="binomial")
+  probs<- predict(fit, newdata=test, type="response")
+  
+  diags<-rbind(diags, class_diag(probs, truth))
+}
+diags %>% summarize_all(mean)
+
+
+```
+After performing Lasso Regularization and identifying which predictor variables are the most important in predicting a player's strong foot, a 10-fold cross validation of the logistic regression model was performed using the refined predictors. Like previously, our average out-of-sample AUC is hovering near 0.77; this AUC indicates the model's prediction strength is "okay" at best, and there were no significant jumps in AUC after LASSO + CV. The same trends can be reported for the other classification diagnostics. It seems that sensitivity remains high throughout the model's because the model is most often predicting a player is right-footed, and most of the time it is correct (since most *are* right footed). In conclusion, the logistic regression model predicting a player's strong foot is okay, but not great - across all 4 "permutations" we did of it. Stepping back and thinking about soccer as a whole, there are a few positions where footed-ness is important, but most of them don't matter. For example, most Right-Backs (hugs the right sideline, defender) are right-footed players and vice-versa for Left backs and Left-footedness. This is observed because of the natural tendency of Fullbacks to be crossing the ball into the box (where their team is attacking) using their stronger foot. A left-footed Right Back would be crossing the ball most often with their Right-foot, which wouldn't be preferred! Thus, it wasn't surprising seeing that LASSO picked most of the Wide player positions (LM/RM, LB/RB, and LW/RW) to be included in the model! However, it is neat that we saw a real-world preference be observed and selected for by the LASSO regularization. 
